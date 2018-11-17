@@ -213,11 +213,11 @@ RasterizerStorageGLES3::Texture *RasterizerCanvasGLES3::_bind_canvas_texture(con
 
 		} else {
 
+			texture = texture->get_ptr();
+
 			if (texture->redraw_if_visible) { //check before proxy, because this is usually used with proxies
 				VisualServerRaster::redraw_request();
 			}
-
-			texture = texture->get_ptr();
 
 			if (texture->render_target)
 				texture->render_target->used_in_frame = true;
@@ -254,11 +254,12 @@ RasterizerStorageGLES3::Texture *RasterizerCanvasGLES3::_bind_canvas_texture(con
 
 		} else {
 
+			normal_map = normal_map->get_ptr();
+
 			if (normal_map->redraw_if_visible) { //check before proxy, because this is usually used with proxies
 				VisualServerRaster::redraw_request();
 			}
 
-			normal_map = normal_map->get_ptr();
 			glActiveTexture(GL_TEXTURE1);
 			glBindTexture(GL_TEXTURE_2D, normal_map->tex_id);
 			state.current_normal = p_normal_map;
@@ -967,6 +968,7 @@ void RasterizerCanvasGLES3::_canvas_item_render_commands(Item *p_item, Item *cur
 				//enable instancing
 
 				state.canvas_shader.set_conditional(CanvasShaderGLES3::USE_INSTANCE_CUSTOM, true);
+				state.canvas_shader.set_conditional(CanvasShaderGLES3::USE_PARTICLES, true);
 				state.canvas_shader.set_conditional(CanvasShaderGLES3::USE_INSTANCING, true);
 				//reset shader and force rebind
 				state.using_texture_rect = true;
@@ -977,6 +979,8 @@ void RasterizerCanvasGLES3::_canvas_item_render_commands(Item *p_item, Item *cur
 				if (texture) {
 					Size2 texpixel_size(1.0 / texture->width, 1.0 / texture->height);
 					state.canvas_shader.set_uniform(CanvasShaderGLES3::COLOR_TEXPIXEL_SIZE, texpixel_size);
+				} else {
+					state.canvas_shader.set_uniform(CanvasShaderGLES3::COLOR_TEXPIXEL_SIZE, Vector2(1.0, 1.0));
 				}
 
 				if (!particles->use_local_coords) {
@@ -1066,6 +1070,7 @@ void RasterizerCanvasGLES3::_canvas_item_render_commands(Item *p_item, Item *cur
 				glBindVertexArray(0);
 
 				state.canvas_shader.set_conditional(CanvasShaderGLES3::USE_INSTANCE_CUSTOM, false);
+				state.canvas_shader.set_conditional(CanvasShaderGLES3::USE_PARTICLES, false);
 				state.canvas_shader.set_conditional(CanvasShaderGLES3::USE_INSTANCING, false);
 				state.using_texture_rect = true;
 				_set_texture_rect_mode(false);
@@ -1381,11 +1386,11 @@ void RasterizerCanvasGLES3::canvas_render_items(Item *p_item_list, int p_z, cons
 						continue;
 					}
 
+					t = t->get_ptr();
+
 					if (t->redraw_if_visible) { //check before proxy, because this is usually used with proxies
 						VisualServerRaster::redraw_request();
 					}
-
-					t = t->get_ptr();
 
 					if (storage->config.srgb_decode_supported && t->using_srgb) {
 						//no srgb in 2D

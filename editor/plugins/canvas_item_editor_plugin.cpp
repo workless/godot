@@ -4504,6 +4504,46 @@ void CanvasItemEditor::focus_selection() {
 
 CanvasItemEditor::CanvasItemEditor(EditorNode *p_editor) {
 
+	key_pos = true;
+	key_rot = true;
+	key_scale = false;
+
+	show_grid = false;
+	show_origin = true;
+	show_viewport = true;
+	show_helpers = false;
+	show_rulers = true;
+	show_guides = true;
+	show_edit_locks = true;
+	zoom = 1;
+	view_offset = Point2(-150 - RULER_WIDTH, -95 - RULER_WIDTH);
+	previous_update_view_offset = view_offset; // Moves the view a little bit to the left so that (0,0) is visible. The values a relative to a 16/10 screen
+	grid_offset = Point2();
+	grid_step = Point2(10, 10);
+	grid_step_multiplier = 0;
+	snap_rotation_offset = 0;
+	snap_rotation_step = 15 / (180 / Math_PI);
+	snap_active = false;
+	snap_node_parent = true;
+	snap_node_anchors = true;
+	snap_node_sides = true;
+	snap_node_center = true;
+	snap_other_nodes = true;
+	snap_grid = true;
+	snap_guides = true;
+	snap_rotation = false;
+	snap_pixel = false;
+
+	skeleton_show_bones = true;
+
+	drag_type = DRAG_NONE;
+	drag_from = Vector2();
+	drag_to = Vector2();
+	dragged_guide_pos = Point2();
+	dragged_guide_index = -1;
+
+	bone_last_frame = 0;
+
 	bone_list_dirty = false;
 	tool = TOOL_SELECT;
 	undo_redo = p_editor->get_undo_redo();
@@ -4826,48 +4866,10 @@ CanvasItemEditor::CanvasItemEditor(EditorNode *p_editor) {
 	multiply_grid_step_shortcut = ED_SHORTCUT("canvas_item_editor/multiply_grid_step", TTR("Multiply grid step by 2"), KEY_KP_MULTIPLY);
 	divide_grid_step_shortcut = ED_SHORTCUT("canvas_item_editor/divide_grid_step", TTR("Divide grid step by 2"), KEY_KP_DIVIDE);
 
-	key_pos = true;
-	key_rot = true;
-	key_scale = false;
-
-	show_grid = false;
-	show_origin = true;
-	show_viewport = true;
-	show_helpers = false;
-	show_rulers = true;
-	show_guides = true;
-	show_edit_locks = true;
-	zoom = 1;
-	view_offset = Point2(-150 - RULER_WIDTH, -95 - RULER_WIDTH);
-	previous_update_view_offset = view_offset; // Moves the view a little bit to the left so that (0,0) is visible. The values a relative to a 16/10 screen
-	grid_offset = Point2();
-	grid_step = Point2(10, 10);
-	grid_step_multiplier = 0;
-	snap_rotation_offset = 0;
-	snap_rotation_step = 15 / (180 / Math_PI);
-	snap_active = false;
-	snap_node_parent = true;
-	snap_node_anchors = true;
-	snap_node_sides = true;
-	snap_node_center = true;
-	snap_other_nodes = true;
-	snap_grid = true;
-	snap_guides = true;
-	snap_rotation = false;
-	snap_pixel = false;
-	skeleton_show_bones = true;
 	skeleton_menu->get_popup()->set_item_checked(skeleton_menu->get_popup()->get_item_index(SKELETON_SHOW_BONES), true);
 	singleton = this;
 
 	set_process_unhandled_key_input(true);
-
-	drag_type = DRAG_NONE;
-	drag_from = Vector2();
-	drag_to = Vector2();
-	dragged_guide_pos = Point2();
-	dragged_guide_index = -1;
-
-	bone_last_frame = 0;
 
 	// Update the menus' checkboxes
 	call_deferred("set_state", get_state());
@@ -5068,19 +5070,13 @@ void CanvasItemEditorViewport::_create_nodes(Node *parent, Node *child, String &
 		editor_data->get_undo_redo().add_do_property(child, "polygon", list);
 	}
 
-	// locate at preview position
-	Point2 pos = Point2(0, 0);
-	if (parent && parent->has_method("get_global_position")) {
-		pos = parent->call("get_global_position");
-	}
-	Transform2D trans = canvas->get_canvas_transform();
-	Point2 target_position = (p_point - trans.get_origin()) / trans.get_scale().x - pos;
-	if (default_type == "Polygon2D" || default_type == "TouchScreenButton" || default_type == "TextureRect" || default_type == "NinePatchRect") {
-		target_position -= texture_size / 2;
-	}
+	// Compute the global position
+	Transform2D xform = canvas_item_editor->get_canvas_transform();
+	Point2 target_position = xform.affine_inverse().xform(p_point);
+
 	// there's nothing to be used as source position so snapping will work as absolute if enabled
-	target_position = canvas->snap_point(target_position);
-	editor_data->get_undo_redo().add_do_method(child, "set_position", target_position);
+	target_position = canvas_item_editor->snap_point(target_position);
+	editor_data->get_undo_redo().add_do_method(child, "set_global_position", target_position);
 }
 
 bool CanvasItemEditorViewport::_create_instance(Node *parent, String &path, const Point2 &p_point) {
@@ -5115,8 +5111,8 @@ bool CanvasItemEditorViewport::_create_instance(Node *parent, String &path, cons
 
 	CanvasItem *parent_ci = Object::cast_to<CanvasItem>(parent);
 	if (parent_ci) {
-		Vector2 target_pos = canvas->get_canvas_transform().affine_inverse().xform(p_point);
-		target_pos = canvas->snap_point(target_pos);
+		Vector2 target_pos = canvas_item_editor->get_canvas_transform().affine_inverse().xform(p_point);
+		target_pos = canvas_item_editor->snap_point(target_pos);
 		target_pos = parent_ci->get_global_transform_with_canvas().affine_inverse().xform(target_pos);
 		editor_data->get_undo_redo().add_do_method(instanced_scene, "set_position", target_pos);
 	}
@@ -5236,7 +5232,7 @@ bool CanvasItemEditorViewport::can_drop_data(const Point2 &p_point, const Varian
 				if (!preview_node->get_parent()) { // create preview only once
 					_create_preview(files);
 				}
-				Transform2D trans = canvas->get_canvas_transform();
+				Transform2D trans = canvas_item_editor->get_canvas_transform();
 				preview_node->set_position((p_point - trans.get_origin()) / trans.get_scale().x);
 				label->set_text(vformat(TTR("Adding %s..."), default_type));
 			}
@@ -5331,7 +5327,7 @@ void CanvasItemEditorViewport::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("_on_mouse_exit"), &CanvasItemEditorViewport::_on_mouse_exit);
 }
 
-CanvasItemEditorViewport::CanvasItemEditorViewport(EditorNode *p_node, CanvasItemEditor *p_canvas) {
+CanvasItemEditorViewport::CanvasItemEditorViewport(EditorNode *p_node, CanvasItemEditor *p_canvas_item_editor) {
 	default_type = "Sprite";
 	// Node2D
 	types.push_back("Sprite");
@@ -5346,7 +5342,7 @@ CanvasItemEditorViewport::CanvasItemEditorViewport(EditorNode *p_node, CanvasIte
 	target_node = NULL;
 	editor = p_node;
 	editor_data = editor->get_scene_tree_dock()->get_editor_data();
-	canvas = p_canvas;
+	canvas_item_editor = p_canvas_item_editor;
 	preview_node = memnew(Node2D);
 
 	accept = memnew(AcceptDialog);
